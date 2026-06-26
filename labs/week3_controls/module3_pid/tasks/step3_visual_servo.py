@@ -1,0 +1,94 @@
+"""
+MIT BWSI Autonomous Drone Racing Course - UAV Neo
+GNU General Public License v3.0
+
+Week 2/3 Lab — Step 3: Visual Servoing (Vision + PID)
+Capstone: use a PID loop on the camera pixel error to keep a red
+object centered by yawing. Combines Week 2 vision with Week 3 control.
+"""
+
+import drone_core
+import drone_utils as uav_utils
+import cv2
+import numpy as np
+
+# -- Constants --------------------------------------------------------------
+LOWER1 = np.array([  0, 120,  70], dtype=np.uint8)
+UPPER1 = np.array([ 10, 255, 255], dtype=np.uint8)
+LOWER2 = np.array([170, 120,  70], dtype=np.uint8)
+UPPER2 = np.array([180, 255, 255], dtype=np.uint8)
+MIN_AREA = 300
+COL_CENTER = 320
+KP = 0.6
+KI = 0.05
+KD = 0.2
+MAX_YAW = 0.5
+CENTER_TOL = 0.05    # normalized error considered centered
+HOLD_TIME = 3.0
+
+# -- Module-level state -----------------------------------------------------
+_err_int = 0.0
+_prev_err = 0.0
+_hold = 0.0
+_done = False
+
+def pid_control(err, err_int, err_dot, kp, ki, kd):
+    """Standard PID law: output = kp*err + ki*err_int + kd*err_dot."""
+    ##################################
+    #### START PUT CODE HERE #########
+    output = 0.0  # YOUR CODE HERE (combine the three gain terms)
+    ###### END PUT CODE HERE #########
+    ##################################
+    return output
+
+def reset():
+    global _err_int, _prev_err, _hold, _done
+    _err_int = 0.0
+    _prev_err = 0.0
+    _hold = 0.0
+    _done = False
+
+
+def update(drone):
+    global _err_int, _prev_err, _hold, _done
+    if _done:
+        return True
+    ##################################
+    #### START PUT CODE HERE #########
+
+    # Vision gives the error, PID turns it into a yaw command.
+    # 1. Find the red object's largest contour (two ranges) like Module 5.
+    # 2. If best is None: stop, reset _err_int and _hold, return False.
+    # 3. row, col = uav_utils.get_contour_center(best)
+    # 4. error = (col - COL_CENTER) / COL_CENTER          # normalized pixel error
+    # 5. Update _err_int (clamped), err_dot, _prev_err (see Step 1).
+    # 6. yaw = uav_utils.clamp(pid_control(error, _err_int, err_dot, KP, KI, KD),
+    #                          -MAX_YAW, MAX_YAW)
+    # 7. send_pcmd(0, 0, yaw, 0); finish once centered (abs(error) < CENTER_TOL) for HOLD_TIME
+
+    ###### END PUT CODE HERE #########
+    ##################################
+    return _done
+
+
+if __name__ == "__main__":
+    _drone = drone_core.create_drone()
+    _launched = False
+
+    def start():
+        reset()
+        print("Step 3: Visual Servoing (Vision + PID)")
+
+    def _update():
+        global _launched
+        if not _launched:
+            _drone.flight.takeoff()
+            if _drone.physics.get_altitude() > 1.0:
+                _launched = True
+                reset()
+            return
+        if update(_drone):
+            _drone.flight.land()
+
+    _drone.set_start_update(start, _update)
+    _drone.go()

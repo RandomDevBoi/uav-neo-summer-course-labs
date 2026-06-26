@@ -3,17 +3,26 @@ MIT BWSI Autonomous Drone Racing Course - UAV Neo
 GNU General Public License v3.0
 
 Week 2/3 Lab — Step 2: Altitude Setpoint Sequence  (SOLUTION)
-Chase a sequence of altitude setpoints (a step response).
+Chase a sequence of target heights (a step response).
 Source: simple_feedback_control.ipynb (closed-loop tracking).
 """
 
 import drone_core
 import drone_utils as uav_utils
 
+import os as _os, sys as _sys
+_d = _os.path.dirname(_os.path.abspath(__file__))
+while _os.path.basename(_d) != "labs" and _os.path.dirname(_d) != _d:
+    _d = _os.path.dirname(_d)
+if _d not in _sys.path:
+    _sys.path.insert(0, _d)
+import neo_lab
+
 # -- Constants --------------------------------------------------------------
-SETPOINTS = [2.0, 3.5, 1.5]   # meters, visited in order
-KP = 0.8
-ALT_TOL = 0.15
+SETPOINTS = [3.0, 6.0, 2.0]   # meters above ground, in order
+KP = 0.2
+THROTTLE_LIMIT = 0.5
+TOL = 0.4
 HOLD_TIME = 2.0
 
 # -- Module-level state -----------------------------------------------------
@@ -38,16 +47,16 @@ def update(drone):
         _done = True
         return _done
     target = SETPOINTS[_index]
-    altitude = drone.physics.get_altitude()
-    error = target - altitude
-    throttle = uav_utils.clamp(KP * error, -1.0, 1.0)
+    height = neo_lab.height(drone)
+    error = target - height
+    throttle = uav_utils.clamp(KP * error, -THROTTLE_LIMIT, THROTTLE_LIMIT)
     drone.flight.send_pcmd(0, 0, 0, throttle)
-    if abs(error) < ALT_TOL:
+    if abs(error) < TOL:
         _hold += drone.get_delta_time()
     else:
         _hold = 0.0
     if _hold >= HOLD_TIME:
-        print(f"[Step 2] Reached setpoint {target}m")
+        print(f"[Step 2] Reached setpoint {target}m (height {height:.2f}m)")
         _index += 1
         _hold = 0.0
     return _done
@@ -55,19 +64,16 @@ def update(drone):
 
 if __name__ == "__main__":
     _drone = drone_core.create_drone()
-    _launched = False
+    _launcher = neo_lab.Launcher(3.0)
 
     def start():
+        _launcher.reset()
         reset()
         print("Step 2: Altitude Setpoint Sequence")
 
     def _update():
-        global _launched
-        if not _launched:
-            _drone.flight.takeoff()
-            if _drone.physics.get_altitude() > 1.0:
-                _launched = True
-                reset()
+        if not _launcher.done:        # arm + climb to a safe height first
+            _launcher.update(_drone)
             return
         if update(_drone):
             _drone.flight.land()

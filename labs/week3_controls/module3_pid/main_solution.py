@@ -10,6 +10,14 @@ Run a single step directly instead:
     drone sim solutions/<step_file>.py
 """
 
+import os as _os, sys as _sys
+_d = _os.path.dirname(_os.path.abspath(__file__))
+while _os.path.basename(_d) != "labs" and _os.path.dirname(_d) != _d:
+    _d = _os.path.dirname(_d)
+if _d not in _sys.path:
+    _sys.path.insert(0, _d)
+import neo_lab
+
 import drone_core
 from solutions import (
     step1_pid_altitude,
@@ -18,6 +26,7 @@ from solutions import (
 )
 
 drone = drone_core.create_drone()
+launcher = neo_lab.Launcher(3.0)
 
 _STEPS = [
     ("Step 1: PID Altitude Hold", step1_pid_altitude),
@@ -25,25 +34,22 @@ _STEPS = [
     ("Step 3: Visual Servoing (Vision + PID)", step3_visual_servo)
 ]
 
-_launched = False
 _index = 0
 
 
 def start():
-    global _launched, _index
-    _launched = False
+    global _index
     _index = 0
+    launcher.reset()
     print("\n" + "=" * 56)
     print("  Week 3 · Module 3 — PID Control")
     print("=" * 56 + "\n")
 
 
 def update():
-    global _launched, _index
-    if not _launched:
-        drone.flight.takeoff()
-        if drone.physics.get_altitude() > 1.0:
-            _launched = True
+    global _index
+    if not launcher.done:                 # arm + climb before running steps
+        if launcher.update(drone):
             _STEPS[0][1].reset()
             print(f"--- {_STEPS[0][0]} ---")
         return
@@ -63,8 +69,8 @@ def update():
 
 
 def update_slow():
-    if _launched and _index < len(_STEPS):
-        print(f"[{_STEPS[_index][0]}] alt={drone.physics.get_altitude():.2f}m")
+    if launcher.done and _index < len(_STEPS):
+        print(f"[{_STEPS[_index][0]}] height={neo_lab.height(drone):.2f}m")
 
 
 if __name__ == "__main__":

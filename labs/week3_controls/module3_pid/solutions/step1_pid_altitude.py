@@ -3,20 +3,30 @@ MIT BWSI Autonomous Drone Racing Course - UAV Neo
 GNU General Public License v3.0
 
 Week 2/3 Lab — Step 1: PID Altitude Hold  (SOLUTION)
-Hold altitude with a full PID controller (P + I + D).
+Hold a target height with a full PID controller (P + I + D).
+Heights are measured above the ground sampled at launch.
 Source: simple_feedback_control.ipynb (pid_control, 1-D quad).
 """
 
 import drone_core
 import drone_utils as uav_utils
 
+import os as _os, sys as _sys
+_d = _os.path.dirname(_os.path.abspath(__file__))
+while _os.path.basename(_d) != "labs" and _os.path.dirname(_d) != _d:
+    _d = _os.path.dirname(_d)
+if _d not in _sys.path:
+    _sys.path.insert(0, _d)
+import neo_lab
+
 # -- Constants --------------------------------------------------------------
-TARGET_ALT = 2.5
-KP = 0.9
-KI = 0.25
-KD = 0.35
-INT_CLAMP = 1.0      # anti-windup limit on the integral
-ALT_TOL = 0.10
+TARGET_HEIGHT = 5.0
+KP = 0.18
+KI = 0.06
+KD = 0.02
+INT_CLAMP = 3.0      # anti-windup limit on the integral
+THROTTLE_LIMIT = 0.5
+TOL = 0.3
 HOLD_TIME = 3.0
 
 # -- Module-level state -----------------------------------------------------
@@ -42,39 +52,37 @@ def update(drone):
     if _done:
         return True
     dt = drone.get_delta_time()
-    altitude = drone.physics.get_altitude()
-    error = TARGET_ALT - altitude
+    height = neo_lab.height(drone)
+    error = TARGET_HEIGHT - height
     _err_int = uav_utils.clamp(_err_int + error * dt, -INT_CLAMP, INT_CLAMP)
     err_dot = (error - _prev_err) / dt if dt > 0 else 0.0
     _prev_err = error
-    throttle = uav_utils.clamp(pid_control(error, _err_int, err_dot, KP, KI, KD), -1.0, 1.0)
+    throttle = uav_utils.clamp(pid_control(error, _err_int, err_dot, KP, KI, KD),
+                               -THROTTLE_LIMIT, THROTTLE_LIMIT)
     drone.flight.send_pcmd(0, 0, 0, throttle)
-    if abs(error) < ALT_TOL:
+    if abs(error) < TOL:
         _hold += dt
     else:
         _hold = 0.0
     if _hold >= HOLD_TIME:
         drone.flight.stop()
-        print(f"[Step 1] PID held {TARGET_ALT}m (final {altitude:.2f}m)")
+        print(f"[Step 1] PID held {TARGET_HEIGHT}m (final {height:.2f}m)")
         _done = True
     return _done
 
 
 if __name__ == "__main__":
     _drone = drone_core.create_drone()
-    _launched = False
+    _launcher = neo_lab.Launcher(3.0)
 
     def start():
+        _launcher.reset()
         reset()
         print("Step 1: PID Altitude Hold")
 
     def _update():
-        global _launched
-        if not _launched:
-            _drone.flight.takeoff()
-            if _drone.physics.get_altitude() > 1.0:
-                _launched = True
-                reset()
+        if not _launcher.done:        # arm + climb to a safe height first
+            _launcher.update(_drone)
             return
         if update(_drone):
             _drone.flight.land()

@@ -3,17 +3,27 @@ MIT BWSI Autonomous Drone Racing Course - UAV Neo
 GNU General Public License v3.0
 
 Week 2/3 Lab — Step 1: Proportional Altitude Hold  (SOLUTION)
-Hold a target altitude using proportional throttle control.
+Hold a target height using proportional throttle control.
+Heights are measured above the ground sampled at launch.
 Source: simple_feedback_control.ipynb (p_control).
 """
 
 import drone_core
 import drone_utils as uav_utils
 
+import os as _os, sys as _sys
+_d = _os.path.dirname(_os.path.abspath(__file__))
+while _os.path.basename(_d) != "labs" and _os.path.dirname(_d) != _d:
+    _d = _os.path.dirname(_d)
+if _d not in _sys.path:
+    _sys.path.insert(0, _d)
+import neo_lab
+
 # -- Constants --------------------------------------------------------------
-TARGET_ALT = 2.5      # meters
-KP = 0.8             # proportional gain
-ALT_TOL = 0.15       # meters considered 'on target'
+TARGET_HEIGHT = 5.0    # meters above ground
+KP = 0.2              # throttle ~ 12 m/s per unit, so keep small
+THROTTLE_LIMIT = 0.5
+TOL = 0.4            # P-control leaves a small steady-state droop
 HOLD_TIME = 3.0      # seconds on target before done
 
 # -- Module-level state -----------------------------------------------------
@@ -30,36 +40,33 @@ def update(drone):
     global _hold, _done
     if _done:
         return True
-    altitude = drone.physics.get_altitude()
-    error = TARGET_ALT - altitude
-    throttle = uav_utils.clamp(KP * error, -1.0, 1.0)
+    height = neo_lab.height(drone)
+    error = TARGET_HEIGHT - height
+    throttle = uav_utils.clamp(KP * error, -THROTTLE_LIMIT, THROTTLE_LIMIT)
     drone.flight.send_pcmd(0, 0, 0, throttle)
-    if abs(error) < ALT_TOL:
+    if abs(error) < TOL:
         _hold += drone.get_delta_time()
     else:
         _hold = 0.0
     if _hold >= HOLD_TIME:
         drone.flight.stop()
-        print(f"[Step 1] Held {TARGET_ALT}m (final {altitude:.2f}m)")
+        print(f"[Step 1] Held {TARGET_HEIGHT}m (final {height:.2f}m)")
         _done = True
     return _done
 
 
 if __name__ == "__main__":
     _drone = drone_core.create_drone()
-    _launched = False
+    _launcher = neo_lab.Launcher(3.0)
 
     def start():
+        _launcher.reset()
         reset()
         print("Step 1: Proportional Altitude Hold")
 
     def _update():
-        global _launched
-        if not _launched:
-            _drone.flight.takeoff()
-            if _drone.physics.get_altitude() > 1.0:
-                _launched = True
-                reset()
+        if not _launcher.done:        # arm + climb to a safe height first
+            _launcher.update(_drone)
             return
         if update(_drone):
             _drone.flight.land()

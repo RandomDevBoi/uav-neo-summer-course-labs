@@ -11,14 +11,24 @@ Source: simple_feedback_control.ipynb (2-D quad).
 import drone_core
 import drone_utils as uav_utils
 
+import os as _os, sys as _sys
+_d = _os.path.dirname(_os.path.abspath(__file__))
+while _os.path.basename(_d) != "labs" and _os.path.dirname(_d) != _d:
+    _d = _os.path.dirname(_d)
+if _d not in _sys.path:
+    _sys.path.insert(0, _d)
+import neo_lab
+
 # -- Constants --------------------------------------------------------------
 TARGET_DIST = 4.0    # meters forward
-TARGET_ALT  = 2.5
-KP = 0.5
+TARGET_HEIGHT = 3.0  # hold launch height
+KP = 0.12
 KI = 0.0
-KD = 0.4
-ALT_KP = 0.8
-DIST_TOL = 0.25
+KD = 0.15
+PITCH_LIMIT = 0.3
+ALT_KP = 0.12
+THROTTLE_LIMIT = 0.5
+DIST_TOL = 0.3
 HOLD_TIME = 2.0
 
 # -- Module-level state -----------------------------------------------------
@@ -52,8 +62,10 @@ def update(drone):
     _err_int += error * dt
     err_dot = (error - _prev_err) / dt if dt > 0 else 0.0
     _prev_err = error
-    pitch = uav_utils.clamp(pid_control(error, _err_int, err_dot, KP, KI, KD), -0.5, 0.5)
-    throttle = uav_utils.clamp(ALT_KP * (TARGET_ALT - drone.physics.get_altitude()), -1.0, 1.0)
+    pitch = uav_utils.clamp(pid_control(error, _err_int, err_dot, KP, KI, KD),
+                            -PITCH_LIMIT, PITCH_LIMIT)
+    throttle = uav_utils.clamp(ALT_KP * (TARGET_HEIGHT - neo_lab.height(drone)),
+                               -THROTTLE_LIMIT, THROTTLE_LIMIT)
     drone.flight.send_pcmd(pitch, 0, 0, throttle)
     if abs(error) < DIST_TOL:
         _hold += dt
@@ -68,19 +80,16 @@ def update(drone):
 
 if __name__ == "__main__":
     _drone = drone_core.create_drone()
-    _launched = False
+    _launcher = neo_lab.Launcher(3.0)
 
     def start():
+        _launcher.reset()
         reset()
         print("Step 2: Fly a Distance (PID on Position)")
 
     def _update():
-        global _launched
-        if not _launched:
-            _drone.flight.takeoff()
-            if _drone.physics.get_altitude() > 1.0:
-                _launched = True
-                reset()
+        if not _launcher.done:        # arm + climb to a safe height first
+            _launcher.update(_drone)
             return
         if update(_drone):
             _drone.flight.land()

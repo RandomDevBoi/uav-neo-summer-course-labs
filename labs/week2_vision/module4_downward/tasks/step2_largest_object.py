@@ -49,6 +49,24 @@ def update(drone):
     # report its center and area (see uav_utils for contour helpers). Advance _timer and
     # finish at HOVER_TIME.
 
+    _timer += drone.get_delta_time()
+
+    largest_b_contour = neo_lab.largest_bright_contour(drone.camera.get_downward_image(), V_MIN, MIN_AREA)
+    if largest_b_contour is None: 
+        return False
+    else:
+        center = uav_utils.get_contour_center(largest_b_contour)
+        area = uav_utils.get_contour_area(largest_b_contour)
+        print(f"Time: {_timer}")
+        print(f"Center at ({center[0]:.3f}, {center[1]:.3f})")
+        print(f"Area is {area:.3f}")
+
+    if _timer >= HOVER_TIME:
+        print(f"Final Time: {_timer}")
+        print(f"Center at ({center[0]:.3f}, {center[1]:.3f})")
+        print(f"Area is {area:.3f}")
+        _done = True
+
     ###### END PUT CODE HERE #########
     ##################################
     return _done

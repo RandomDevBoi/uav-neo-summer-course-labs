@@ -44,17 +44,19 @@ _frame = 0
 _done = False
 
 def reset():
-    global _prev_gray, _prev_pts, _timer, _interval, _frame, _done
+    global _prev_gray, _prev_pts, _timer, _interval, _frame, _done, _estimate, _real
     _prev_gray = None
     _prev_pts = None
     _timer = 0.0
     _interval = 0.0
     _frame = 0
+    _estimate = (0.0, 0.0)
+    _real = (0.0, 0.0)
     _done = False
 
 
 def update(drone):
-    global _prev_gray, _prev_pts, _timer, _interval, _frame, _done
+    global _prev_gray, _prev_pts, _timer, _interval, _frame, _done, _estimate, _real
     if _done:
         return True
     ##################################
@@ -75,6 +77,37 @@ def update(drone):
     # then reset _interval. The camera moves opposite the scene flow (sign flip). Finish at
     # RUN_TIME, printing the estimate vs. true velocity. See the README (Key terms).
 
+    _interval += drone.get_delta_time()
+    _timer += drone.get_delta_time()
+    _frame += 1
+
+    drone.flight.send_pcmd(PROBE_PITCH, 0, 0, 0)
+
+    if _frame % SKIP == 0:
+        gray_img = cv2.cvtColor(drone.camera.get_downward_image(), cv2.COLOR_BGR2GRAY)
+        if _prev_pts is None or len(_prev_pts) < MIN_PTS or _prev_gray is None:
+            _prev_pts = cv2.goodFeaturesToTrack(gray_img, **FEATURE_PARAMS)
+        else:
+            pts, status, error = cv2.calcOpticalFlowPyrLK(_prev_gray, gray_img, _prev_pts, None, **LK_PARAMS)
+            if pts is not None and status is not None:
+                keep = status.flatten() == 1
+                if len(pts[keep].reshape(-1, 2)) > 0:
+                    disp = pts[keep].reshape(-1, 2) - _prev_pts[keep].reshape(-1, 2)
+                    dx_avg = disp[:, 0].mean()
+                    dz_avg = disp[:, 1].mean()
+                    pixel_size = 2 * neo_lab.height(drone) * HFOV_TAN / IMAGE_WIDTH
+                    _estimate = (-dx_avg * pixel_size / _interval, dz_avg * pixel_size / _interval)
+                    dx_real, _, dz_real = drone.physics.get_linear_velocity()
+                    _real = (dx_real, dz_real)
+                _prev_pts = pts[keep]
+        _prev_gray = gray_img
+        _interval = 0.0
+
+    if _timer >= RUN_TIME:
+        drone.flight.stop()
+        print(f"Estimated Average Velocity: ({_estimate[0]:.3f}, {_estimate[1]:.3f})")
+        print(f"Real Velocity:  ({_real[0]:.3f}, {_real[1]:.3f})")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

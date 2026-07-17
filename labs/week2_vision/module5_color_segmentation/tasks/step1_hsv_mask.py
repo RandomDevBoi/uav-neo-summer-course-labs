@@ -50,6 +50,19 @@ def update(drone):
     # Report the fraction of masked pixels. Advance _timer and finish at HOVER_TIME.
     # See the README (Key terms) for HSV masking.
 
+    _timer += drone.get_delta_time()
+
+    img = drone.camera.get_color_image()
+    hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hsv_mask = cv2.inRange(hsv_img, LOWER, UPPER)
+    fraction = np.count_nonzero(hsv_mask) / hsv_mask.size
+
+    print(f"Time: {_timer:.2f} | Fraction of masked pixels: {fraction:.3f}")
+
+    if _timer >= HOVER_TIME:
+        print(f"Final | Time: {_timer:.2f} | Fraction of masked pixels: {fraction:.3f}")
+        _done = True
+
     ###### END PUT CODE HERE #########
     ##################################
     return _done

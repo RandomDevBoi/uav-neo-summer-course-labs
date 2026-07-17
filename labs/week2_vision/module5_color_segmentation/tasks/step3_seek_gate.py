@@ -57,6 +57,22 @@ def update(drone):
     # roughly centered (within CENTER_TOL) so you turn toward it before chasing. The box
     # grows as you approach; stop when w reaches TARGET_WIDTH.
 
+    gate_contour = neo_lab.largest_cyan_gate(drone.camera.get_color_image(), MIN_AREA)
+    if gate_contour is None:
+        drone.flight.send_pcmd(0,0,SEARCH_YAW,0)
+        return False
+    x, _, w, _ = cv2.boundingRect(gate_contour)
+    yawError = ((x + w/2.0) - COL_CENTER) / COL_CENTER
+    yaw = uav_utils.clamp(yawError * MAX_YAW, -MAX_YAW, MAX_YAW)
+    pitch = APPROACH_PITCH if abs((x + w/2.0) - COL_CENTER) < CENTER_TOL else 0.0
+    
+    drone.flight.send_pcmd(pitch,0,yaw,0)
+
+    if w >= TARGET_WIDTH:
+        drone.flight.stop()
+        print(f"Finished, width = {w}")
+        _done = True
+
     ###### END PUT CODE HERE #########
     ##################################
     return _done

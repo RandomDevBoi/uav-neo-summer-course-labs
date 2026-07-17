@@ -69,6 +69,34 @@ def update(drone):
     # time. Finish at HOVER_TIME, printing _last_mag. See the README (Key terms) and the
     # OpenCV sparse optical-flow functions.
 
+    _timer += drone.get_delta_time()
+    _frame += 1
+
+    drone.flight.send_pcmd(PROBE_PITCH, 0, 0, 0)
+
+    if _frame % SKIP == 0:
+        gray_img = cv2.cvtColor(drone.camera.get_downward_image(), cv2.COLOR_BGR2GRAY)
+        if  _prev_pts is None or len(_prev_pts) < MIN_PTS or _prev_gray is None:
+            _prev_pts = cv2.goodFeaturesToTrack(gray_img, **FEATURE_PARAMS)
+        else:
+            pts, status, error = cv2.calcOpticalFlowPyrLK(_prev_gray, gray_img, _prev_pts, None, **LK_PARAMS)
+            if status is not None and pts is not None:
+                keep = status.flatten() == 1
+                new = pts[keep].reshape(-1, 2)
+                old = _prev_pts[keep].reshape(-1, 2)
+                if len(new) > 0:
+                    displacement = new - old
+                    _last_mag = float(np.mean(np.sqrt(displacement[:, 0]**2 + displacement[:,1]**2)))
+                _prev_pts = new.reshape(-1,1,2)
+        _prev_gray = gray_img
+
+    if _timer >= HOVER_TIME:
+        drone.flight.stop()
+        print(f"Last Magnitude: {_last_mag:.3f}")
+        _done = True
+
+
+
     ###### END PUT CODE HERE #########
     ##################################
     return _done

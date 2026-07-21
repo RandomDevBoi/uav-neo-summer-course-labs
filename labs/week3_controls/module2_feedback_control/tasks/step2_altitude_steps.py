@@ -51,7 +51,24 @@ def update(drone):
     # This is your Step 1 proportional controller with one change: the target is
     # SETPOINTS[_index] instead of a fixed value, and you advance _index after holding
     # each one. Stop and set _done once _index runs past the end of the list.
+    error = SETPOINTS[_index] - neo_lab.height(drone)
+    command = uav_utils.clamp(KP * error, -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(0, 0, 0, command)
+    
+    if abs(error) <= TOL:
+        _hold += drone.get_delta_time()
+    else:
+        _hold = 0.0
 
+    if _hold >= HOLD_TIME:
+        print(f"Target: {SETPOINTS[_index]} | Real: {neo_lab.height(drone):.3f}")
+        _hold = 0.0
+        _index += 1
+            
+    if _index >= len(SETPOINTS):
+        drone.flight.stop()
+        print("Finished")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

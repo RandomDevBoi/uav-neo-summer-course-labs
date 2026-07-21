@@ -51,6 +51,17 @@ def update(drone):
     # vz=forward) and integrate the horizontal components into (_x, _z) each frame. Nudge
     # diagonally with PROBE_PITCH/PROBE_ROLL so the drone moves. After REPORT_TIME, stop,
     # print the position (use neo_lab.height(drone) for the up axis), and set _done.
+    _timer += drone.get_delta_time()
+    dt = drone.get_delta_time()
+    vx, _, vz = drone.physics.get_linear_velocity()
+    _x += vx * dt
+    _z += vz * dt
+    drone.flight.send_pcmd(PROBE_PITCH, PROBE_ROLL, 0, 0)
+
+    if _timer >= REPORT_TIME:
+        drone.flight.stop()
+        print(f"Estimated Position (x, z): ({_x:.3f}, {_z:.3f})")
+        _done = True
 
     ###### END PUT CODE HERE #########
     ##################################

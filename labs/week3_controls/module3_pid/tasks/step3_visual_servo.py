@@ -36,6 +36,7 @@ HOLD_TIME = 1.0
 
 # -- Module-level state -----------------------------------------------------
 _err_int = 0.0
+_filtered_err_dot = 0.0
 _prev_err = 0.0
 _target_col = None
 _hold = 0.0
@@ -45,22 +46,26 @@ def pid_control(err, err_int, err_dot, kp, ki, kd):
     """Return the PID controller output from the three gain terms (see README, Key terms)."""
     ##################################
     #### START PUT CODE HERE #########
-    output = 0.0
+    p = kp * err
+    i = ki * err_int
+    d = kd * err_dot
+    output = p + i + d
     ###### END PUT CODE HERE #########
     ##################################
     return output
 
 def reset():
-    global _err_int, _prev_err, _target_col, _hold, _done
+    global _err_int, _prev_err, _filtered_err_dot, _target_col, _hold, _done
     _err_int = 0.0
     _prev_err = 0.0
+    _filtered_err_dot = 0.0
     _target_col = None
     _hold = 0.0
     _done = False
 
 
 def update(drone):
-    global _err_int, _prev_err, _target_col, _hold, _done
+    global _err_int, _prev_err, _filtered_err_dot, _target_col, _hold, _done
     if _done:
         return True
     ##################################
@@ -78,6 +83,36 @@ def update(drone):
     # normalized error, PID it to a yaw command clamped to MAX_YAW, and sweep at SEARCH_YAW
     # when no gate is in view. See the README (Key terms) and Week 2 for finding gates.
 
+    dt = drone.get_delta_time()
+    img = drone.camera.get_color_image()
+
+    if _target_col is None:
+        nearest_gate = neo_lab.gate_nearest_center(img, V_MIN, MIN_AREA) #search for a gate
+    else:
+        nearest_gate = neo_lab.gate_nearest_to(img, _target_col, V_MIN, MIN_AREA) #locks onto chosen gate
+
+    if nearest_gate is None:
+        drone.flight.send_pcmd(0, 0, SEARCH_YAW, 0)
+        _target_col = None
+        _err_int = 0.0
+        _prev_err = 0.0
+        _hold = 0.0
+
+    else:
+        _target_col = uav_utils.get_contour_center(nearest_gate)[1]
+        err = (_target_col - COL_CENTER) / COL_CENTER
+        _err_int = uav_utils.clamp(_err_int + err * dt, -1.0, 1.0)
+        raw_err_dot = (err - _prev_err) / dt if dt > 0.0 else 0.0 #filtered derivative
+        _filtered_err_dot = 0.8 * _filtered_err_dot + 0.2 * raw_err_dot #continuing it
+        _prev_err = err
+        yaw = uav_utils.clamp(pid_control(err, _err_int, _filtered_err_dot, KP, KI, KD), -MAX_YAW, MAX_YAW)
+        drone.flight.send_pcmd(0, 0, yaw,0 )
+        _hold = _hold + dt if abs(err) < CENTER_TOL else 0.0
+
+    if _hold >= HOLD_TIME:
+        drone.flight.stop()
+        print("Done, locked on")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

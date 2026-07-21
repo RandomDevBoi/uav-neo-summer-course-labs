@@ -9,6 +9,7 @@ the compass heading: which way the nose points. Read it here so Step 2 can hold 
 
 import drone_core
 import drone_utils as uav_utils
+import math
 
 # -- Course setup: makes the shared `neo_lab` helper importable.
 #    You don't need to read or change this block. --
@@ -44,6 +45,17 @@ def update(drone):
     # Read the drone's attitude from drone.physics.get_attitude() (pitch, roll, yaw in
     # degrees; yaw is the compass heading). Turn slowly with PROBE_YAW so the heading
     # visibly changes, and after HOVER_TIME stop, print the final yaw, and set _done.
+    _timer += drone.get_delta_time()
+    yaw_attitude = drone.physics.get_attitude()[2]
+    increment = math.floor(_timer * 10 ) / 10
+    if increment % 0.2 == 0:
+        print(f"Time: {_timer:.1f} | Yaw: {yaw_attitude:.3f}") #so that it doesn't print every single frame
+    drone.flight.send_pcmd(0,0,PROBE_YAW, 0)
+
+    if _timer >= HOVER_TIME:
+        drone.flight.stop()
+        print(f"FINAL | Time: {_timer:.1f} | Yaw: {yaw_attitude:.3f}")
+        _done = True
 
     ###### END PUT CODE HERE #########
     ##################################

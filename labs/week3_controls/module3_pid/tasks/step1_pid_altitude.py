@@ -40,7 +40,10 @@ def pid_control(err, err_int, err_dot, kp, ki, kd):
     """Return the PID controller output from the three gain terms (see README, Key terms)."""
     ##################################
     #### START PUT CODE HERE #########
-    output = 0.0
+    p = kp * err
+    i = ki * err_int
+    d = kd * err_dot
+    output = p + i + d
     ###### END PUT CODE HERE #########
     ##################################
     return output
@@ -65,7 +68,24 @@ def update(drone):
     # derivative yourself. Throttle is a vertical-velocity command; clamp it to
     # +/-THROTTLE_LIMIT. Finish (set _done) once the height stays within TOL for
     # HOLD_TIME. See the README (Key terms) for the PID law and anti-windup.
+    dt = drone.get_delta_time() #keeps dt consistent throughout script, drone.get_delta_time() might change throughout update()
+    error = TARGET_HEIGHT - neo_lab.height(drone)
+    _err_int = uav_utils.clamp(_err_int + error * dt, -INT_CLAMP, INT_CLAMP)
+    _err_dot = (error - _prev_err) / dt if dt > 0 else 0.0
+    _prev_err = error
 
+    command = uav_utils.clamp(pid_control(error, _err_int, _err_dot, KP, KI, KD), -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(0, 0, 0, command)
+
+    if abs(error) <= TOL:
+        _hold += dt
+    else:
+        _hold = 0.0
+    
+    if _hold >= HOLD_TIME:
+        drone.flight.stop()
+        print(f"Target: {TARGET_HEIGHT} | Real: {neo_lab.height(drone):.3f}")
+        _done = True
     ###### END PUT CODE HERE #########
     ##################################
     return _done

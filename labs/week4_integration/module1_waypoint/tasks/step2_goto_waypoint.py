@@ -38,19 +38,23 @@ HOLD_TIME = 1.5
 # -- Module-level state -----------------------------------------------------
 _x = 0.0
 _z = 0.0
+_x_prev_d = 0.0
+_z_prev_d = 0.0
 _hold = 0.0
 _done = False
 
 def reset():
-    global _x, _z, _hold, _done
+    global _x, _z, _x_prev_d, _z_prev_d, _hold, _done
     _x = 0.0
     _z = 0.0
+    _x_prev_d = 0.0
+    _z_prev_d = 0.0
     _hold = 0.0
     _done = False
 
 
 def update(drone):
-    global _x, _z, _hold, _done
+    global _x, _z, _x_prev_d, _z_prev_d, _hold, _done
     if _done:
         return True
     ##################################
@@ -66,6 +70,38 @@ def update(drone):
     # velocity, which brakes you): roll for the right error, pitch for the forward error.
     # Hold height with a proportional term (ALT_KP). Clamp each to its limit. Finish when
     # both horizontal errors are under POS_TOL and speed is under SETTLE_SPEED for HOLD_TIME.
+    dt = drone.get_delta_time()
+
+    vx, _, vz = drone.physics.get_linear_velocity()
+    _x += vx * dt
+    y = neo_lab.height(drone)
+    _z += vz * dt
+
+    z_err = (TARGET_FWD - _z) 
+    x_err = (TARGET_RIGHT - _x) 
+    y_err = (TARGET_HEIGHT - y) 
+
+    #low pass filter (experimental)
+    #it seems the sim is still jittery, perhaps due to the instant acceleration of the props which doesn't happen IRL
+    _z_filtered_d = _z_prev_d = 0.3 * (vz * KD_POS) + 0.7 * _z_prev_d
+    _x_filtered_d = _x_prev_d = 0.3 * (vx * KD_POS) + 0.7 * _x_prev_d
+
+    #commands
+    pitch = uav_utils.clamp((z_err * KP_POS) - _z_filtered_d, -PITCH_LIMIT, PITCH_LIMIT)
+    roll = uav_utils.clamp((x_err * KP_POS) - _x_filtered_d, -ROLL_LIMIT, ROLL_LIMIT)
+    throttle = uav_utils.clamp(y_err * ALT_KP, -THROTTLE_LIMIT, THROTTLE_LIMIT)
+    drone.flight.send_pcmd(pitch, roll, 0, throttle)
+
+    speed = pow(vx**2 + vz**2, 0.5)
+    if abs(z_err) < POS_TOL and abs(x_err) < POS_TOL and abs(y_err) < POS_TOL and speed < SETTLE_SPEED:
+        _hold += dt
+    else:
+        _hold = 0.0
+
+    if _hold >= HOLD_TIME:
+        drone.flight.stop()
+        print(f"Estimated Position (Z, X, Y): ({_z:.3f}, {_x:.3f}, {y:.3f})")
+        _done = True
 
     ###### END PUT CODE HERE #########
     ##################################

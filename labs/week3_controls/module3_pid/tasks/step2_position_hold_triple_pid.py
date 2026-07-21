@@ -9,6 +9,7 @@ while a proportional term keeps altitude.
 
 import drone_core
 import drone_utils as uav_utils
+import numpy as np
 
 # -- Course setup: makes the shared `neo_lab` helper importable.
 #    You don't need to read or change this block. --
@@ -21,22 +22,21 @@ if _d not in _sys.path:
 import neo_lab
 
 # -- Constants --------------------------------------------------------------
-TARGET_DIST = 4.0    # meters forward
-TARGET_HEIGHT = 3.0  # hold launch height
-KP = 0.15
-KI = 0.0
-KD = 0.5    # strong velocity damping to avoid overshoot
-PITCH_LIMIT = 0.25
-ALT_KP = 0.12
-THROTTLE_LIMIT = 0.5
+#Using Unity Conventions (ZXY)
+TARGET = np.array([4.0, -2.0, 3.0])
+KP = np.array([0.15, 0.15, 0.18])    # per axis: z, x, y
+KI = np.array([0.00, 0.00, 0.06])
+KD = np.array([0.50, 0.50, 0.02]) 
+OUT_LIMIT = np.array([0.25, 0.25, 0.5]) #Pitch limit, Pitch limit, Throttle Limit
+INT_CLAMP = 3.0 #anti windup, derived from step 1
 MIN_TRAVEL = 5.0   # fly at least this long before checking 'arrived'
 SETTLE_SPEED = 0.25  # must slow below this to count as arrived
 HOLD_TIME = 1.5
 
 # -- Module-level state -----------------------------------------------------
-_pos = 0.0
-_err_int = 0.0
-_prev_err = 0.0
+_p = np.array([0.0, 0.0, 0.0]) #p stands for position
+_err_int = np.array([0.0, 0.0, 0.0])
+_err_dot = np.array([0.0, 0.0 ,0.0])
 _t = 0.0
 _hold = 0.0
 _done = False
@@ -54,17 +54,17 @@ def pid_control(err, err_int, err_dot, kp, ki, kd):
     return output
 
 def reset():
-    global _pos, _err_int, _prev_err, _t, _hold, _done
-    _pos = 0.0
-    _err_int = 0.0
-    _prev_err = 0.0
+    global _p, _err_int, _err_dot, _t, _hold, _done
+    _p = np.array([0.0, 0.0, 0.0])
+    _err_int = np.array([0.0, 0.0, 0.0])
+    _err_dot = np.array([0.0, 0.0, 0.0])
     _t = 0.0
     _hold = 0.0
     _done = False
 
 
 def update(drone):
-    global _pos, _err_int, _prev_err, _t, _hold, _done
+    global _p, _err_int, _err_dot, _t, _hold, _done
     if _done:
         return True
     ##################################
@@ -76,30 +76,32 @@ def update(drone):
     # use a proportional term (ALT_KP) on height to hold TARGET_HEIGHT. Count as arrived
     # only after MIN_TRAVEL, once speed drops below SETTLE_SPEED for HOLD_TIME. See the
     # README (Key terms) for dead reckoning and the PID law.
-
+ 
     dt = drone.get_delta_time() #same reason as previously, drone.get_delta_time() could change throughout update
     _t += dt
-    vel = drone.physics.get_linear_velocity() # same reason as dt
+    vel = np.asarray(drone.physics.get_linear_velocity())[[2, 0, 1]]
 
-    _pos += vel[2] * dt #esimate position
+    #estimates
+    _p += vel * dt
+    _p[2] = neo_lab.height(drone)
 
     #PID
-    err = TARGET_DIST - _pos 
-    _err_int += err * dt
-    err_dot = -vel[2]
-    _prev_err = err
+    err = TARGET - _p
+    _err_int = np.clip(_err_int + err * dt, -INT_CLAMP, INT_CLAMP)
+    #err_dot = -vel #old jittery one
+    raw_err_dot = -vel
+    _err_dot = 0.95 * _err_dot + 0.05 * raw_err_dot #low pass filtered version
+    out = np.clip(pid_control(err, _err_int, _err_dot, KP, KI, KD), -OUT_LIMIT, OUT_LIMIT)
+    drone.flight.send_pcmd(out[0], out[1], 0, out[2])
 
-    pitch = uav_utils.clamp(pid_control(err, _err_int, err_dot, KP, KI, KD), -PITCH_LIMIT, PITCH_LIMIT)
-    throttle = uav_utils.clamp(ALT_KP * (TARGET_HEIGHT - neo_lab.height(drone)), -THROTTLE_LIMIT, THROTTLE_LIMIT)
-    drone.flight.send_pcmd(pitch, 0, 0, throttle)
-
-    if _t > MIN_TRAVEL and abs(vel[2]) < SETTLE_SPEED:
+    if _t > MIN_TRAVEL and abs(vel[0]) < SETTLE_SPEED and abs(vel[1]) < SETTLE_SPEED and abs(vel[2]) < SETTLE_SPEED:
         _hold += dt
     else: 
         _hold = 0.0
     if _hold >= HOLD_TIME:
         drone.flight.stop()
-        print(f"Estimated Position: {_pos:.3f} | Target Position: {TARGET_DIST:.3f}")
+        print(f"Estimated Position: ({_p[0]}, {_p[1]}, {_p[2]}) [we actually know y]")
+        print(f"Target Position: ({TARGET[0]}, {TARGET[1]}, {TARGET[2]})")
         _done = True
 
     ###### END PUT CODE HERE #########
